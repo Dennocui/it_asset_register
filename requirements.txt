@@ -24,6 +24,7 @@ django-phonenumber-field==8.1.0
 django-timezone-field==7.1
 djangorestframework==3.16.0
 drf-yasg==1.21.10
+Faker==37.1.0
 frozenlist==1.5.0
 idna==3.10
 inflection==0.5.1
