@@ -3,11 +3,11 @@ from datetime import datetime, timedelta
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from faker import Faker
-from companies.models import Company, Site, Department
 from assets.models import (
     AssetCategory, Manufacturer, AssetModel,
-    AssetStatus, Asset, MaintenanceRecord,
+    AssetStatus, Asset, MaintenanceRecord, MaintenanceType
 )
+from companies.models import Company, Site, Department
 
 User = get_user_model()
 
@@ -18,264 +18,254 @@ class Command(BaseCommand):
         fake = Faker()
         self.stdout.write(self.style.SUCCESS('Starting data seeding...'))
 
-        # Clear existing data (optional)
-        self._clear_existing_data()
-
         # Create companies
         companies = self._create_companies(fake)
-
+        
         # Create sites for each company
         sites = self._create_sites(fake, companies)
-
+        
         # Create departments
         departments = self._create_departments(fake, companies)
-
+        
         # Create users
         users = self._create_users(fake, companies, departments)
-
+        
         # Create asset categories
         categories = self._create_asset_categories()
-
+        
         # Create manufacturers
         manufacturers = self._create_manufacturers(fake)
-
+        
         # Create asset models
         asset_models = self._create_asset_models(manufacturers, categories)
-
+        
         # Create asset statuses
         statuses = self._create_asset_statuses()
-
+        
         # Create assets
         assets = self._create_assets(fake, companies, sites, departments, asset_models, statuses, users)
-
+        
         # Create maintenance records
         self._create_maintenance_records(fake, assets, users)
 
         self.stdout.write(self.style.SUCCESS('Successfully seeded database!'))
 
-    def _clear_existing_data(self):
-        """Optional: Clear existing data"""
-        self.stdout.write(self.style.WARNING('Clearing existing data...'))
-        MaintenanceRecord.objects.all().delete()
-        Asset.objects.all().delete()
-        AssetModel.objects.all().delete()
-        Manufacturer.objects.all().delete()
-        AssetCategory.objects.all().delete()
-        AssetStatus.objects.all().delete()
-        User.objects.exclude(is_superuser=True).delete()
-        Department.objects.all().delete()
-        Site.objects.all().delete()
-        Company.objects.all().delete()
-
     def _create_companies(self, fake):
+        """Create sample companies"""
         companies = []
-        company_names = ['TechCorp', 'DataSystems', 'InnovateCo', 'DigitalWorks']
-        
-        for name in company_names:
-            company = Company.objects.create(
-                name=name,
-                tax_id=fake.iban(),
-                address=fake.address(),
-                contact_email=fake.company_email(),
-                contact_phone=fake.phone_number(),
-                logo=None
+        for _ in range(3):
+            company, created = Company.objects.get_or_create(
+                name=fake.company(),
+                defaults={'address': fake.address()}
             )
             companies.append(company)
-            self.stdout.write(self.style.SUCCESS(f'Created company: {name}'))
-        
         return companies
 
     def _create_sites(self, fake, companies):
+        """Create sites for companies"""
         sites = []
-        site_types = ['Headquarters', 'Regional Office', 'Data Center', 'Branch Office']
-        
         for company in companies:
-            for i in range(random.randint(2, 4)):
-                site = Site.objects.create(
+            for _ in range(2):
+                site, created = Site.objects.get_or_create(
                     company=company,
-                    name=f"{company.name} {site_types[i % len(site_types)]}",
-                    address=fake.address(),
-                    primary_contact=fake.name()
+                    name=f"{company.name} {fake.city()} Office",
+                    defaults={'address': fake.address()}
                 )
                 sites.append(site)
-        
         return sites
 
     def _create_departments(self, fake, companies):
+        """Create departments"""
         departments = []
-        dept_names = ['IT', 'Finance', 'HR', 'Operations', 'Sales', 'Marketing']
-        
+        dept_names = ['IT', 'Finance', 'HR', 'Operations', 'Sales']
         for company in companies:
-            for dept_name in dept_names:
-                department = Department.objects.create(
+            for name in dept_names:
+                dept, created = Department.objects.get_or_create(
                     company=company,
-                    name=dept_name,
-                    cost_center=fake.bothify(text='CC-####')
+                    name=name,
+                    defaults={}
                 )
-                departments.append(department)
-        
+                departments.append(dept)
         return departments
 
     def _create_users(self, fake, companies, departments):
+        """Create test users"""
         users = []
-        roles = ['user'] * 8 + ['asset_manager'] * 2  # 80% regular users, 20% asset managers
-        
-        for company in companies:
-            for i in range(random.randint(10, 20)):  # 10-20 users per company
-                dept = random.choice([d for d in departments if d.company == company])
-                
-                user = User.objects.create_user(
-                    username=fake.unique.user_name(),
-                    first_name=fake.first_name(),
-                    last_name=fake.last_name(),
-                    email=fake.unique.email(),
-                    password='testpass123',
-                    company=company,
-                    department=dept,
-                    phone=fake.phone_number(),
-                    is_asset_manager=(roles[i % len(roles)] == 'asset_manager')
-                )
-                users.append(user)
-        
+        for i in range(10):
+            username = fake.user_name()
+            email = fake.email()
+            user, created = User.objects.get_or_create(
+                username=username,
+                defaults={
+                    'email': email,
+                    'password': 'testpass123',
+                    'first_name': fake.first_name(),
+                    'last_name': fake.last_name()
+                }
+            )
+            users.append(user)
         return users
 
     def _create_asset_categories(self):
-        categories = []
-        category_data = [
-            {'name': 'Laptop', 'icon': 'laptop', 'description': 'Portable computers'},
-            {'name': 'Desktop', 'icon': 'desktop', 'description': 'Fixed workstations'},
-            {'name': 'Monitor', 'icon': 'display', 'description': 'Computer displays'},
-            {'name': 'Phone', 'icon': 'phone', 'description': 'Mobile devices'},
-            {'name': 'Tablet', 'icon': 'tablet', 'description': 'Touchscreen devices'},
-            {'name': 'Server', 'icon': 'server', 'description': 'Enterprise servers'},
-            {'name': 'Printer', 'icon': 'printer', 'description': 'Printing devices'},
+        """Create asset categories"""
+        categories_data = [
+            {'name': 'Laptop', 'description': 'Portable computers', 'icon': 'laptop'},
+            {'name': 'Desktop', 'description': 'Workstation computers', 'icon': 'desktop'},
+            {'name': 'Server', 'description': 'Enterprise servers', 'icon': 'server'},
+            {'name': 'Network', 'description': 'Network equipment', 'icon': 'network-wired'},
+            {'name': 'Printer', 'description': 'Printing devices', 'icon': 'print'},
         ]
         
-        for data in category_data:
-            category = AssetCategory.objects.create(**data)
+        categories = []
+        for data in categories_data:
+            category, created = AssetCategory.objects.get_or_create(
+                name=data['name'],
+                defaults={
+                    'description': data['description'],
+                    'icon': data['icon']
+                }
+            )
             categories.append(category)
-        
         return categories
 
     def _create_manufacturers(self, fake):
-        manufacturers = []
-        maker_names = ['Dell', 'HP', 'Lenovo', 'Apple', 'Samsung', 'Acer', 'Asus']
+        """Create manufacturers"""
+        manufacturers_data = [
+            {'name': 'Dell', 'support_url': 'https://www.dell.com/support', 'support_phone': '1-800-999-3355'},
+            {'name': 'HP', 'support_url': 'https://support.hp.com', 'support_phone': '1-800-474-6836'},
+            {'name': 'Lenovo', 'support_url': 'https://support.lenovo.com', 'support_phone': '1-855-253-6686'},
+            {'name': 'Cisco', 'support_url': 'https://www.cisco.com/support', 'support_phone': '1-800-553-2447'},
+            {'name': 'Apple', 'support_url': 'https://support.apple.com', 'support_phone': '1-800-275-2273'},
+        ]
         
-        for name in maker_names:
-            manufacturer = Manufacturer.objects.create(
-                name=name,
-                support_url=fake.url(),
-                support_phone=fake.phone_number()
+        manufacturers = []
+        for data in manufacturers_data:
+            manufacturer, created = Manufacturer.objects.get_or_create(
+                name=data['name'],
+                defaults={
+                    'support_url': data['support_url'],
+                    'support_phone': data.get('support_phone', '')
+                }
             )
             manufacturers.append(manufacturer)
-        
         return manufacturers
 
-    def _create_asset_models(self, fake, manufacturers, categories):
+    def _create_asset_models(self, manufacturers, categories):
+        """Create asset models"""
+        model_data = [
+            {'manufacturer': 'Dell', 'name': 'Latitude 5420', 'category': 'Laptop'},
+            {'manufacturer': 'Dell', 'name': 'OptiPlex 7080', 'category': 'Desktop'},
+            {'manufacturer': 'HP', 'name': 'EliteBook 840', 'category': 'Laptop'},
+            {'manufacturer': 'HP', 'name': 'ProDesk 600', 'category': 'Desktop'},
+            {'manufacturer': 'Lenovo', 'name': 'ThinkPad X1', 'category': 'Laptop'},
+            {'manufacturer': 'Cisco', 'name': 'Catalyst 9200', 'category': 'Network'},
+            {'manufacturer': 'Apple', 'name': 'MacBook Pro', 'category': 'Laptop'},
+        ]
+        
         models = []
-        model_data = {
-            'Laptop': ['XPS 13', 'Spectre x360', 'ThinkPad X1', 'MacBook Pro', 'Galaxy Book', 'Swift 3', 'ZenBook'],
-            'Desktop': ['OptiPlex', 'EliteDesk', 'ThinkCentre', 'iMac', 'AIO', 'Aspire', 'VivoMini'],
-            'Monitor': ['UltraSharp', 'EliteDisplay', 'ThinkVision', 'Pro Display', 'Odyssey', 'Predator', 'ProArt'],
-            'Phone': ['Galaxy S22', 'iPhone 13', 'Pixel 6', 'Xperia 1', 'A52', 'Redmi Note', 'ROG Phone'],
-            'Tablet': ['iPad Pro', 'Galaxy Tab', 'Yoga Tab', 'Surface Pro', 'MediaPad', 'Iconia', 'Chromebook Tab'],
-            'Server': ['PowerEdge', 'ProLiant', 'ThinkSystem', 'Mac Pro', 'ESC4000', 'Altos', 'RS300'],
-            'Printer': ['LaserJet', 'OfficeJet', 'Color LaserJet', 'DeskJet', 'PIXMA', 'EcoTank', 'WorkForce'],
-        }
-        
-        for manufacturer in manufacturers:
-            for category in categories:
-                category_models = model_data.get(category.name, [])
-                if category_models:
-                    for model_name in random.sample(category_models, min(3, len(category_models))):
-                        model = AssetModel.objects.create(
-                            manufacturer=manufacturer,
-                            name=model_name,
-                            model_number=fake.bothify(text='??-####'),
-                            category=category,
-                            typical_lifespan=random.choice([36, 48, 60, 72])  # 3-6 years
-                        )
-                        models.append(model)
-        
+        for data in model_data:
+            manufacturer = next(m for m in manufacturers if m.name == data['manufacturer'])
+            category = next(c for c in categories if c.name == data['category'])
+            
+            model, created = AssetModel.objects.get_or_create(
+                manufacturer=manufacturer,
+                name=data['name'],
+                defaults={
+                    'category': category,
+                    'typical_lifespan': random.choice([36, 48, 60])
+                }
+            )
+            models.append(model)
         return models
 
     def _create_asset_statuses(self):
-        statuses = []
-        status_data = [
-            {'name': 'Active', 'is_active': True, 'color': '#28a745'},
-            {'name': 'In Repair', 'is_active': True, 'color': '#ffc107'},
+        """Create asset statuses"""
+        statuses_data = [
+            {'name': 'Deployed', 'is_active': True, 'color': '#28a745'},
+            {'name': 'In Stock', 'is_active': True, 'color': '#17a2b8'},
+            {'name': 'Under Repair', 'is_active': True, 'color': '#ffc107'},
             {'name': 'Retired', 'is_active': False, 'color': '#6c757d'},
-            {'name': 'Lost/Stolen', 'is_active': False, 'color': '#dc3545'},
-            {'name': 'Disposed', 'is_active': False, 'color': '#343a40'},
         ]
         
-        for data in status_data:
-            status = AssetStatus.objects.create(**data)
+        statuses = []
+        for data in statuses_data:
+            status, created = AssetStatus.objects.get_or_create(
+                name=data['name'],
+                defaults={
+                    'is_active': data['is_active'],
+                    'color': data['color']
+                }
+            )
             statuses.append(status)
-        
         return statuses
 
     def _create_assets(self, fake, companies, sites, departments, asset_models, statuses, users):
+        """Create assets"""
         assets = []
-        status_weights = [70, 10, 10, 5, 5]  # 70% Active, 10% In Repair, etc.
-        
-        for i in range(200):  # Create 200 assets
-            company = random.choice(companies)
+        for i in range(50):
             purchase_date = fake.date_between(start_date='-5y', end_date='today')
-            
             asset = Asset.objects.create(
-                asset_tag=f'AST-{1000 + i:04d}',
-                serial_number=fake.bothify(text='SN-########'),
-                model=random.choice([m for m in asset_models if m.manufacturer]),
-                status=random.choices(statuses, weights=status_weights)[0],
+                asset_tag=f"AST-{1000 + i}",
+                serial_number=fake.uuid4()[:10].upper(),
+                model=random.choice(asset_models),
+                status=random.choice(statuses),
                 purchase_date=purchase_date,
-                purchase_cost=random.randint(300, 3000),
+                purchase_cost=round(random.uniform(500, 3000), 2),
                 warranty_months=random.choice([12, 24, 36]),
-                assigned_to=random.choice([u for u in users if u.company == company]) if random.random() > 0.3 else None,
-                location=random.choice([s.name for s in sites if s.company == company]),
-                ip_address=fake.ipv4() if random.random() > 0.7 else None,
-                mac_address=fake.mac_address() if random.random() > 0.7 else None,
-                last_audit=fake.date_between(start_date=purchase_date, end_date='today') if random.random() > 0.5 else None
+                assigned_to=random.choice(users) if random.random() > 0.3 else None,
+                location=random.choice(sites).name if random.random() > 0.2 else '',
+                ip_address=fake.ipv4() if random.random() > 0.5 else None
             )
             assets.append(asset)
-        
         return assets
 
     def _create_maintenance_records(self, fake, assets, users):
-        maintenance_types = [
-            {'name': 'Hardware Repair', 'recommended_frequency': 6},
-            {'name': 'Software Update', 'recommended_frequency': 3},
-            {'name': 'Preventive Maintenance', 'recommended_frequency': 12},
-            {'name': 'Virus Removal', 'recommended_frequency': None},
-            {'name': 'Data Migration', 'recommended_frequency': None},
-            {'name': 'Battery Replacement', 'recommended_frequency': 24},
+        """Create maintenance records"""
+        maintenance_types_data = [
+            {'name': 'Hardware Repair', 'description': 'Physical component repair', 'frequency_months': 6},
+            {'name': 'Software Update', 'description': 'OS and application updates', 'frequency_months': 3},
+            {'name': 'Preventive Maintenance', 'description': 'Scheduled maintenance', 'frequency_months': 12},
+            {'name': 'Virus Removal', 'description': 'Malware and virus cleanup', 'frequency_months': None},
+            {'name': 'Data Migration', 'description': 'Transferring data between systems', 'frequency_months': None},
+            {'name': 'Battery Replacement', 'description': 'Power supply replacement', 'frequency_months': 24},
         ]
         
         types = []
-        for data in maintenance_types:
-            types.append(MaintenanceType.objects.create(**data))
+        for data in maintenance_types_data:
+            type_obj, created = MaintenanceType.objects.get_or_create(
+                name=data['name'],
+                defaults={
+                    'description': data['description'],
+                    'frequency_months': data['frequency_months']
+                }
+            )
+            types.append(type_obj)
         
         priorities = ['low', 'medium', 'high', 'critical']
-        priority_weights = [30, 50, 15, 5]  # 30% low, 50% medium, etc.
+        priority_weights = [30, 50, 15, 5]
+        status_choices = ['open', 'in_progress', 'on_hold', 'completed', 'cancelled']
         
         for asset in assets:
-            # Create 0-5 maintenance records per asset
             for _ in range(random.randint(0, 5)):
                 created_at = fake.date_time_between(
                     start_date=asset.purchase_date,
                     end_date='now'
                 )
-                resolved = random.random() > 0.3  # 70% chance of being resolved
+                is_completed = random.random() > 0.3
+                status = 'completed' if is_completed else random.choice(['open', 'in_progress', 'on_hold'])
                 
                 MaintenanceRecord.objects.create(
                     asset=asset,
                     title=fake.sentence(nb_words=6),
                     description=fake.paragraph(nb_sentences=3),
                     priority=random.choices(priorities, weights=priority_weights)[0],
-                    maintenance_type=random.choice(types),
+                    status=status,
+                    maintenance_type=random.choice(types) if random.random() > 0.7 else None,
                     created_by=random.choice(users),
                     created_at=created_at,
-                    resolved_at=created_at + timedelta(days=random.randint(1, 30)) if resolved else None,
-                    resolution=fake.paragraph(nb_sentences=2) if resolved else None,
-                    cost=random.randint(50, 500) if resolved else None
+                    scheduled_date=created_at.date() + timedelta(days=random.randint(1, 14)),
+                    completed_date=created_at.date() + timedelta(days=random.randint(1, 30)) if is_completed else None,
+                    resolution=fake.paragraph(nb_sentences=2) if is_completed else '',
+                    cost=round(random.uniform(50, 500), 2) if is_completed else None,
+                    technician=fake.name() if is_completed else ''
                 )
